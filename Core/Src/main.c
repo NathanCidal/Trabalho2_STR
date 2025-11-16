@@ -95,6 +95,18 @@ const osThreadAttr_t taskLCD_attributes = {
 };
 /* USER CODE BEGIN PV */
 uint8_t print_loc = PRINT_DISPLAY;
+
+/* ADC DMA buffer */
+uint32_t adcFSR = 0;
+
+/* Processed FSR value (normalized 0.0–1.0) */
+float fsrForce = 0;
+
+/* Mutex optional (recommended if multiple tasks will use fsrForce) */
+osMutexId_t fsrMutexHandle;
+
+uint16_t global_Pulse = 0;
+
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -247,6 +259,10 @@ int main(void)
   MX_USART2_UART_Init();
   MX_TIM1_Init();
   /* USER CODE BEGIN 2 */
+  //HAL_ADC_Start_DMA(&hadc1, &adcFSR, 1);
+  HAL_TIM_PWM_Start(&htim1, TIM_CHANNEL_1);
+
+
   /* USER CODE END 2 */
 
   /* Init scheduler */
@@ -276,7 +292,7 @@ int main(void)
   taskServoGateHandle = osThreadNew(StartTaskServoGate, NULL, &taskServoGate_attributes);
 
   /* creation of taskSensor */
-  taskSensorHandle = osThreadNew(StartTaskSensor, NULL, &taskSensor_attributes);
+  //taskSensorHandle = osThreadNew(StartTaskSensor, NULL, &taskSensor_attributes);
 
   /* creation of taskLCD */
   taskLCDHandle = osThreadNew(StartTaskLCD, NULL, &taskLCD_attributes);
@@ -552,7 +568,10 @@ void StartTaskSemaforo(void *argument)
   /* Infinite loop */
   for(;;)
   {
-    osDelay(1);
+	  fsrForce = 0.7;
+	  osDelay(5000);
+	  fsrForce = 0;
+	  osDelay(1000);
   }
   /* USER CODE END 5 */
 }
@@ -564,35 +583,76 @@ void StartTaskSemaforo(void *argument)
 * @retval None
 */
 /* USER CODE END Header_StartTaskServoGate */
-void StartTaskServoGate(void *argument)
-{
-  /* USER CODE BEGIN StartTaskServoGate */
-	//HAL_UART_Init(&huart2);
-  /* Infinite loop */
-  for(;;)
-  {
-    osDelay(1);
-  }
-  /* USER CODE END StartTaskServoGate */
-}
+	void StartTaskServoGate(void *argument)
+	{
+	  /* USER CODE BEGIN StartTaskServoGate */
+		/* Pulse widths in timer ticks (with 1 MHz timer clock): */
+		    const uint16_t SERVO_MIN = 1000;   // 1.0 ms
+		    const uint16_t SERVO_MID = 1500;   // 1.5 ms
+		    const uint16_t SERVO_MAX = 2000;   // 2.0 ms
 
-/* USER CODE BEGIN Header_StartTaskSensor */
-/**
-* @brief Function implementing the taskSensor thread.
-* @param argument: Not used
-* @retval None
-*/
-/* USER CODE END Header_StartTaskSensor */
-void StartTaskSensor(void *argument)
-{
-  /* USER CODE BEGIN StartTaskSensor */
-  /* Infinite loop */
-  for(;;)
-  {
-    osDelay(1);
-  }
-  /* USER CODE END StartTaskSensor */
-}
+		    uint16_t pulse = SERVO_MID;
+		    uint32_t maxHoldEndTime = 0;       // end time for 6s max pulse
+		    uint8_t gateActive = 0;            // state flag
+
+		    for (;;)
+		    {
+		        float force = fsrForce; // from sensor task (0–1.0)
+
+		        /* Check for new trigger */
+		        if (!gateActive && force >= 0.5f)
+		        {
+		            gateActive = 1;
+		            pulse = SERVO_MAX;
+		            maxHoldEndTime = osKernelGetTickCount() + 6000; // 6 seconds
+		        }
+
+		        /* If gate is active, check if 6s have passed */
+		        if (gateActive)
+		        {
+		            if (osKernelGetTickCount() >= maxHoldEndTime)
+		            {
+		                gateActive = 0;
+		                pulse = SERVO_MIN; // back to resting MIN
+		            }
+		        }
+
+		        /* Update PWM every 20ms (50Hz) */
+		        global_Pulse = pulse;
+		        __HAL_TIM_SET_COMPARE(&htim1, TIM_CHANNEL_1, pulse);
+
+		        osDelay(200); // 50 Hz update rate
+		    }
+	  /* USER CODE END StartTaskServoGate */
+	}
+
+	/* USER CODE BEGIN Header_StartTaskSensor */
+	/**
+	* @brief Function implementing the taskSensor thread.
+	* @param argument: Not used
+	* @retval None
+	*/
+	/* USER CODE END Header_StartTaskSensor */
+	void StartTaskSensor(void *argument)
+	{
+	  /* USER CODE BEGIN StartTaskSensor */
+
+		//const float VREF = 3.3f;
+		//float voltage = 0;
+		//float filtered = 0;
+		for(;;)
+		{
+			/*
+			voltage = (VREF * adcFSR) / 4095.0f;
+			float force = voltage / VREF;  // 0–1.0
+			filtered = 0.90f * filtered + 0.10f * force;
+			fsrForce = filtered;
+			osDelay(10);  // 100 Hz sampling
+			 */
+			osDelay(1000);
+		}
+	  /* USER CODE END StartTaskSensor */
+	}
 
 /* USER CODE BEGIN Header_StartTaskLCD */
 /**
@@ -604,18 +664,18 @@ void StartTaskSensor(void *argument)
 void StartTaskLCD(void *argument)
 {
   /* USER CODE BEGIN StartTaskLCD */
-  LCD_Init(LCD_Cursor_Off);
+	 LCD_Init(LCD_Cursor_Off);
+	 print_loc = PRINT_DISPLAY;
+	 float force;
   /* Infinite loop */
   for(;;)
   {
-	LCD_goto(0, 0);
-	print_loc = PRINT_DISPLAY;
-	printf("abc\n");
-	osDelay(200);
-	LCD_goto(0, 1);
-	print_loc = PRINT_DISPLAY;
-	printf("defghijk\n");
-    osDelay(200);
+	 force = 0.7;
+	 LCD_goto(0, 0);
+	 printf("P=%04d\n", global_Pulse);
+	 LCD_goto(0, 1);
+	 printf("F=%0.1f\n", force);
+	 osDelay(400);
   }
   /* USER CODE END StartTaskLCD */
 }
