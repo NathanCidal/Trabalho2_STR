@@ -1,0 +1,57 @@
+########################################
+# STM32CubeIDE / STM32CubeMX Projects
+########################################
+
+# Build directories
+/Debug/
+/Release/
+/build/
+/out/
+
+# Object files
+*.o
+*.obj
+
+# Dependency files
+*.d
+
+# Binaries
+*.elf
+*.hex
+*.bin
+*.map
+
+# Assembly listings
+*.lst
+
+# Logs
+*.log
+
+# Temporary files
+*.swp
+*.swo
+*.tmp
+*.bak
+
+# Eclipse/CubeIDE metadata to ignore
+.settings/language.settings.xml
+.settings/version.ini
+
+# Do NOT ignore .settings/* entirely!
+# CubeIDE stores MCU configuration there.
+
+# VSCode files (optional)
+.vscode/
+
+########################################
+# STM32CubeMX generated backups
+########################################
+Backup/
+*.ioc-backup
+
+########################################
+# Misc
+########################################
+*.launch
+*.pyc
+__pycache__/
