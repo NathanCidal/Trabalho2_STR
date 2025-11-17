@@ -16,8 +16,8 @@
 ../Core/Src/main.c:607:13:MX_USART2_UART_Init	5
 ../Core/Src/main.c:655:13:MX_GPIO_Init	1
 ../Core/Src/main.c:724:6:StartTaskSemaforo	2
-../Core/Src/main.c:756:6:StartTaskServoGate	1
-../Core/Src/main.c:810:6:StartTaskSensor	2
-../Core/Src/main.c:856:6:StartTaskLCD	4
-../Core/Src/main.c:907:6:HAL_TIM_PeriodElapsedCallback	2
-../Core/Src/main.c:925:6:Error_Handler	1
+../Core/Src/main.c:756:6:StartTaskServoGate	3
+../Core/Src/main.c:822:6:StartTaskSensor	2
+../Core/Src/main.c:868:6:StartTaskLCD	4
+../Core/Src/main.c:919:6:HAL_TIM_PeriodElapsedCallback	2
+../Core/Src/main.c:937:6:Error_Handler	1

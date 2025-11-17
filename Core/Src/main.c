@@ -779,23 +779,35 @@ void StartTaskServoGate(void *argument)
 	HAL_TIM_PWM_Start(&htim1, TIM_CHANNEL_1);
 	//HAL_TIM_PWM_Stop(&htim1, TIM_CHANNEL_1);
 
+	uint8_t pedestrian_val_01 = 0;
+	uint8_t pedestrian_val_02 = 0;
+
   /* Infinite loop */
   for(;;)
   {
-		  osDelay(2000);
-		  HAL_TIM_PWM_Stop(&htim1, TIM_CHANNEL_1);
-		  sConfig.Pulse = 10;
-		  HAL_TIM_PWM_ConfigChannel(&htim1, &sConfig, TIM_CHANNEL_1);
-		  HAL_TIM_PWM_Init(&htim1);
-		  HAL_TIM_PWM_Start(&htim1, TIM_CHANNEL_1);
-		  osDelay(2000);
-		  HAL_TIM_PWM_Stop(&htim1, TIM_CHANNEL_1);
-		  sConfig.Pulse = 4;
-		  HAL_TIM_PWM_ConfigChannel(&htim1, &sConfig, TIM_CHANNEL_1);
-		  HAL_TIM_PWM_Init(&htim1);
-		  HAL_TIM_PWM_Start(&htim1, TIM_CHANNEL_1);
+  	  	  pedestrian_val_02 = pedestrian_val_01;
+	  	  pedestrian_val_01 = pedestrian_detected;
 
-	  osDelay(1);
+	  	  if(pedestrian_val_01 != pedestrian_val_02){
+	  		  if(pedestrian_val_01){
+	  			  HAL_TIM_PWM_Stop(&htim1, TIM_CHANNEL_1);
+	  			  sConfig.Pulse = 10;
+	  			  HAL_TIM_PWM_ConfigChannel(&htim1, &sConfig, TIM_CHANNEL_1);
+	  			  HAL_TIM_PWM_Init(&htim1);
+	  			  HAL_TIM_PWM_Start(&htim1, TIM_CHANNEL_1);
+	  		  }else{
+	  			  HAL_TIM_PWM_Stop(&htim1, TIM_CHANNEL_1);
+	  			  sConfig.Pulse = 4;
+	  			  HAL_TIM_PWM_ConfigChannel(&htim1, &sConfig, TIM_CHANNEL_1);
+	  			  HAL_TIM_PWM_Init(&htim1);
+	  			  HAL_TIM_PWM_Start(&htim1, TIM_CHANNEL_1);
+	  		  }
+	  	  }else{
+	  		HAL_TIM_PWM_Stop(&htim1, TIM_CHANNEL_1);
+	  	  }
+		  osDelay(200);
+
+
   }
   /* USER CODE END StartTaskServoGate */
 }

@@ -17,7 +17,7 @@
 ../Core/Src/main.c:655:13:MX_GPIO_Init	56	static
 ../Core/Src/main.c:724:6:StartTaskSemaforo	24	static
 ../Core/Src/main.c:756:6:StartTaskServoGate	64	static
-../Core/Src/main.c:810:6:StartTaskSensor	56	static
-../Core/Src/main.c:856:6:StartTaskLCD	56	static
-../Core/Src/main.c:907:6:HAL_TIM_PeriodElapsedCallback	16	static
-../Core/Src/main.c:925:6:Error_Handler	8	static,ignoring_inline_asm
+../Core/Src/main.c:822:6:StartTaskSensor	56	static
+../Core/Src/main.c:868:6:StartTaskLCD	56	static
+../Core/Src/main.c:919:6:HAL_TIM_PeriodElapsedCallback	16	static
+../Core/Src/main.c:937:6:Error_Handler	8	static,ignoring_inline_asm
