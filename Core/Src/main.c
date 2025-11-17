@@ -773,7 +773,7 @@ void StartTaskServoGate(void *argument)
 	sConfig.OCIdleState = TIM_OCIDLESTATE_RESET;
 	sConfig.OCNIdleState = TIM_OCNIDLESTATE_RESET;
 
-	sConfig.Pulse = 10;
+	sConfig.Pulse = 24 - 1;
 	HAL_TIM_PWM_ConfigChannel(&htim1, &sConfig,TIM_CHANNEL_1);
 	HAL_TIM_PWM_Init(&htim1);
 	HAL_TIM_PWM_Start(&htim1, TIM_CHANNEL_1);
@@ -791,13 +791,13 @@ void StartTaskServoGate(void *argument)
 	  	  if(pedestrian_val_01 != pedestrian_val_02){
 	  		  if(pedestrian_val_01){
 	  			  HAL_TIM_PWM_Stop(&htim1, TIM_CHANNEL_1);
-	  			  sConfig.Pulse = 10;
+	  			  sConfig.Pulse = 14 - 1;
 	  			  HAL_TIM_PWM_ConfigChannel(&htim1, &sConfig, TIM_CHANNEL_1);
 	  			  HAL_TIM_PWM_Init(&htim1);
 	  			  HAL_TIM_PWM_Start(&htim1, TIM_CHANNEL_1);
 	  		  }else{
 	  			  HAL_TIM_PWM_Stop(&htim1, TIM_CHANNEL_1);
-	  			  sConfig.Pulse = 4;
+	  			  sConfig.Pulse = 24 - 1;
 	  			  HAL_TIM_PWM_ConfigChannel(&htim1, &sConfig, TIM_CHANNEL_1);
 	  			  HAL_TIM_PWM_Init(&htim1);
 	  			  HAL_TIM_PWM_Start(&htim1, TIM_CHANNEL_1);
@@ -960,3 +960,4 @@ void assert_failed(uint8_t *file, uint32_t line)
   /* USER CODE END 6 */
 }
 #endif /* USE_FULL_ASSERT */
+
