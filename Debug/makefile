@@ -64,8 +64,8 @@ all: main-build
 main-build: Trabalho2_STR.elf secondary-outputs
 
 # Tool invocations
-Trabalho2_STR.elf Trabalho2_STR.map: $(OBJS) $(USER_OBJS) /home/nathancidal/STM32CubeIDE/workspace_1.19.0/Trabalho2_STR/STM32G071RBTX_FLASH.ld makefile objects.list $(OPTIONAL_TOOL_DEPS)
-	arm-none-eabi-gcc -o "Trabalho2_STR.elf" @"objects.list" $(USER_OBJS) $(LIBS) -mcpu=cortex-m0plus -T"/home/nathancidal/STM32CubeIDE/workspace_1.19.0/Trabalho2_STR/STM32G071RBTX_FLASH.ld" --specs=nosys.specs -Wl,-Map="Trabalho2_STR.map" -Wl,--gc-sections -static --specs=nano.specs -mfloat-abi=soft -mthumb -Wl,--start-group -lc -lm -Wl,--end-group
+Trabalho2_STR.elf Trabalho2_STR.map: $(OBJS) $(USER_OBJS) /home/nathancidal/Documents/outro_ainda/Trabalho2_STR/STM32G071RBTX_FLASH.ld makefile objects.list $(OPTIONAL_TOOL_DEPS)
+	arm-none-eabi-gcc -o "Trabalho2_STR.elf" @"objects.list" $(USER_OBJS) $(LIBS) -mcpu=cortex-m0plus -T"/home/nathancidal/Documents/outro_ainda/Trabalho2_STR/STM32G071RBTX_FLASH.ld" --specs=nosys.specs -Wl,-Map="Trabalho2_STR.map" -Wl,--gc-sections -static --specs=nano.specs -mfloat-abi=soft -mthumb -Wl,--start-group -lc -lm -Wl,--end-group
 	@echo 'Finished building target: $@'
 	@echo ' '
 

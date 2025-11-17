@@ -23,6 +23,7 @@
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 #include "stdio.h"
+#include "stdarg.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -32,6 +33,19 @@
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
+
+#define LED01_1 GPIOC->BSRR = 1 << 0
+#define LED01_0 GPIOC->BRR  = 1 << 0
+
+#define LED02_1 GPIOC->BSRR = 1 << 1
+#define LED02_0 GPIOC->BRR  = 1 << 1
+
+#define LED03_1 GPIOC->BSRR = 1 << 2
+#define LED03_0 GPIOC->BRR  = 1 << 2
+
+#define LED04_1 GPIOC->BSRR = 1 << 3
+#define LED04_0 GPIOC->BRR  = 1 << 3
+
 #define EN_0  GPIOC->BRR = (1 << 7)
 #define EN_1  GPIOC->BSRR = (1 << 7)
 #define RS_0  GPIOA->BRR = (1 << 9)
@@ -61,6 +75,10 @@
 /* USER CODE END PM */
 
 /* Private variables ---------------------------------------------------------*/
+ADC_HandleTypeDef hadc1;
+
+RTC_HandleTypeDef hrtc;
+
 TIM_HandleTypeDef htim1;
 
 UART_HandleTypeDef huart2;
@@ -93,8 +111,19 @@ const osThreadAttr_t taskLCD_attributes = {
   .priority = (osPriority_t) osPriorityLow,
   .stack_size = 128 * 4
 };
+/* Definitions for printable */
+osMutexId_t printableHandle;
+const osMutexAttr_t printable_attributes = {
+  .name = "printable"
+};
+/* Definitions for pedestrianMutex */
+osMutexId_t pedestrianMutexHandle;
+const osMutexAttr_t pedestrianMutex_attributes = {
+  .name = "pedestrianMutex"
+};
 /* USER CODE BEGIN PV */
 uint8_t print_loc = PRINT_DISPLAY;
+uint8_t pedestrian_detected = 0;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -102,13 +131,23 @@ void SystemClock_Config(void);
 static void MX_GPIO_Init(void);
 static void MX_USART2_UART_Init(void);
 static void MX_TIM1_Init(void);
+static void MX_ADC1_Init(void);
+static void MX_RTC_Init(void);
 void StartTaskSemaforo(void *argument);
 void StartTaskServoGate(void *argument);
 void StartTaskSensor(void *argument);
 void StartTaskLCD(void *argument);
 
 /* USER CODE BEGIN PFP */
-
+void us_delay(int time);
+void LCD_sendData(uint8_t data);
+void LCD_wrcom4(uint8_t com4);
+void LCD_wrcom(uint8_t com);
+void LCD_wrchar(uint8_t ch);
+void LCD_backlight(uint8_t light);
+void LCD_clear();
+void LCD_goto(uint8_t x, uint8_t y);
+void LCD_Init(uint8_t cursor);
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
@@ -196,8 +235,7 @@ void LCD_Init(uint8_t cursor){
 	LCD_backlight(1);
 }
 
-
-//Extra for printf on Display
+//Extra for printf on Display or Terminal
 int __io_putchar(int ch){
 	if(print_loc == PRINT_DISPLAY){
 		if(ch != '\n'){
@@ -246,11 +284,19 @@ int main(void)
   MX_GPIO_Init();
   MX_USART2_UART_Init();
   MX_TIM1_Init();
+  MX_ADC1_Init();
+  MX_RTC_Init();
   /* USER CODE BEGIN 2 */
   /* USER CODE END 2 */
 
   /* Init scheduler */
   osKernelInitialize();
+  /* Create the mutex(es) */
+  /* creation of printable */
+  printableHandle = osMutexNew(&printable_attributes);
+
+  /* creation of pedestrianMutex */
+  pedestrianMutexHandle = osMutexNew(&pedestrianMutex_attributes);
 
   /* USER CODE BEGIN RTOS_MUTEX */
   /* add mutexes, ... */
@@ -321,10 +367,11 @@ void SystemClock_Config(void)
   /** Initializes the RCC Oscillators according to the specified parameters
   * in the RCC_OscInitTypeDef structure.
   */
-  RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_HSI;
+  RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_HSI|RCC_OSCILLATORTYPE_LSI;
   RCC_OscInitStruct.HSIState = RCC_HSI_ON;
   RCC_OscInitStruct.HSIDiv = RCC_HSI_DIV1;
   RCC_OscInitStruct.HSICalibrationValue = RCC_HSICALIBRATION_DEFAULT;
+  RCC_OscInitStruct.LSIState = RCC_LSI_ON;
   RCC_OscInitStruct.PLL.PLLState = RCC_PLL_NONE;
   if (HAL_RCC_OscConfig(&RCC_OscInitStruct) != HAL_OK)
   {
@@ -343,6 +390,131 @@ void SystemClock_Config(void)
   {
     Error_Handler();
   }
+}
+
+/**
+  * @brief ADC1 Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_ADC1_Init(void)
+{
+
+  /* USER CODE BEGIN ADC1_Init 0 */
+
+  /* USER CODE END ADC1_Init 0 */
+
+  ADC_ChannelConfTypeDef sConfig = {0};
+
+  /* USER CODE BEGIN ADC1_Init 1 */
+
+  /* USER CODE END ADC1_Init 1 */
+
+  /** Configure the global features of the ADC (Clock, Resolution, Data Alignment and number of conversion)
+  */
+  hadc1.Instance = ADC1;
+  hadc1.Init.ClockPrescaler = ADC_CLOCK_SYNC_PCLK_DIV2;
+  hadc1.Init.Resolution = ADC_RESOLUTION_12B;
+  hadc1.Init.DataAlign = ADC_DATAALIGN_RIGHT;
+  hadc1.Init.ScanConvMode = ADC_SCAN_DISABLE;
+  hadc1.Init.EOCSelection = ADC_EOC_SINGLE_CONV;
+  hadc1.Init.LowPowerAutoWait = DISABLE;
+  hadc1.Init.LowPowerAutoPowerOff = DISABLE;
+  hadc1.Init.ContinuousConvMode = DISABLE;
+  hadc1.Init.NbrOfConversion = 1;
+  hadc1.Init.DiscontinuousConvMode = DISABLE;
+  hadc1.Init.ExternalTrigConv = ADC_SOFTWARE_START;
+  hadc1.Init.ExternalTrigConvEdge = ADC_EXTERNALTRIGCONVEDGE_NONE;
+  hadc1.Init.DMAContinuousRequests = DISABLE;
+  hadc1.Init.Overrun = ADC_OVR_DATA_PRESERVED;
+  hadc1.Init.SamplingTimeCommon1 = ADC_SAMPLETIME_1CYCLE_5;
+  hadc1.Init.SamplingTimeCommon2 = ADC_SAMPLETIME_1CYCLE_5;
+  hadc1.Init.OversamplingMode = DISABLE;
+  hadc1.Init.TriggerFrequencyMode = ADC_TRIGGER_FREQ_HIGH;
+  if (HAL_ADC_Init(&hadc1) != HAL_OK)
+  {
+    Error_Handler();
+  }
+
+  /** Configure Regular Channel
+  */
+  sConfig.Channel = ADC_CHANNEL_1;
+  sConfig.Rank = ADC_REGULAR_RANK_1;
+  sConfig.SamplingTime = ADC_SAMPLINGTIME_COMMON_1;
+  if (HAL_ADC_ConfigChannel(&hadc1, &sConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN ADC1_Init 2 */
+
+  /* USER CODE END ADC1_Init 2 */
+
+}
+
+/**
+  * @brief RTC Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_RTC_Init(void)
+{
+
+  /* USER CODE BEGIN RTC_Init 0 */
+
+  /* USER CODE END RTC_Init 0 */
+
+  RTC_TimeTypeDef sTime = {0};
+  RTC_DateTypeDef sDate = {0};
+
+  /* USER CODE BEGIN RTC_Init 1 */
+
+  /* USER CODE END RTC_Init 1 */
+
+  /** Initialize RTC Only
+  */
+  hrtc.Instance = RTC;
+  hrtc.Init.HourFormat = RTC_HOURFORMAT_24;
+  hrtc.Init.AsynchPrediv = 127;
+  hrtc.Init.SynchPrediv = 255;
+  hrtc.Init.OutPut = RTC_OUTPUT_DISABLE;
+  hrtc.Init.OutPutRemap = RTC_OUTPUT_REMAP_NONE;
+  hrtc.Init.OutPutPolarity = RTC_OUTPUT_POLARITY_HIGH;
+  hrtc.Init.OutPutType = RTC_OUTPUT_TYPE_OPENDRAIN;
+  hrtc.Init.OutPutPullUp = RTC_OUTPUT_PULLUP_NONE;
+  if (HAL_RTC_Init(&hrtc) != HAL_OK)
+  {
+    Error_Handler();
+  }
+
+  /* USER CODE BEGIN Check_RTC_BKUP */
+
+  /* USER CODE END Check_RTC_BKUP */
+
+  /** Initialize RTC and set the Time and Date
+  */
+  sTime.Hours = 0;
+  sTime.Minutes = 0;
+  sTime.Seconds = 0;
+  sTime.SubSeconds = 0;
+  sTime.DayLightSaving = RTC_DAYLIGHTSAVING_NONE;
+  sTime.StoreOperation = RTC_STOREOPERATION_RESET;
+  if (HAL_RTC_SetTime(&hrtc, &sTime, RTC_FORMAT_BIN) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sDate.WeekDay = RTC_WEEKDAY_MONDAY;
+  sDate.Month = RTC_MONTH_JANUARY;
+  sDate.Date = 1;
+  sDate.Year = 0;
+
+  if (HAL_RTC_SetDate(&hrtc, &sDate, RTC_FORMAT_BIN) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN RTC_Init 2 */
+
+  /* USER CODE END RTC_Init 2 */
+
 }
 
 /**
@@ -366,9 +538,9 @@ static void MX_TIM1_Init(void)
 
   /* USER CODE END TIM1_Init 1 */
   htim1.Instance = TIM1;
-  htim1.Init.Prescaler = 8000-1;
-  htim1.Init.CounterMode = TIM_COUNTERMODE_UP;
-  htim1.Init.Period = 400-1;
+  htim1.Init.Prescaler = 1600-1;
+  htim1.Init.CounterMode = TIM_COUNTERMODE_DOWN;
+  htim1.Init.Period = 320-1;
   htim1.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
   htim1.Init.RepetitionCounter = 0;
   htim1.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
@@ -393,7 +565,7 @@ static void MX_TIM1_Init(void)
     Error_Handler();
   }
   sConfigOC.OCMode = TIM_OCMODE_PWM1;
-  sConfigOC.Pulse = 400-1-20;
+  sConfigOC.Pulse = 320-1-10;
   sConfigOC.OCPolarity = TIM_OCPOLARITY_HIGH;
   sConfigOC.OCNPolarity = TIM_OCNPOLARITY_HIGH;
   sConfigOC.OCFastMode = TIM_OCFAST_DISABLE;
@@ -494,13 +666,23 @@ static void MX_GPIO_Init(void)
   __HAL_RCC_GPIOB_CLK_ENABLE();
 
   /*Configure GPIO pin Output Level */
+  HAL_GPIO_WritePin(GPIOC, GPIO_PIN_0|GPIO_PIN_1|GPIO_PIN_2|GPIO_PIN_3
+                          |GPIO_PIN_7, GPIO_PIN_RESET);
+
+  /*Configure GPIO pin Output Level */
   HAL_GPIO_WritePin(GPIOA, LED_GREEN_Pin|GPIO_PIN_8|GPIO_PIN_9, GPIO_PIN_RESET);
 
   /*Configure GPIO pin Output Level */
   HAL_GPIO_WritePin(GPIOB, GPIO_PIN_0|GPIO_PIN_14|GPIO_PIN_4|GPIO_PIN_5, GPIO_PIN_RESET);
 
-  /*Configure GPIO pin Output Level */
-  HAL_GPIO_WritePin(GPIOC, GPIO_PIN_7, GPIO_PIN_RESET);
+  /*Configure GPIO pins : PC0 PC1 PC2 PC3
+                           PC7 */
+  GPIO_InitStruct.Pin = GPIO_PIN_0|GPIO_PIN_1|GPIO_PIN_2|GPIO_PIN_3
+                          |GPIO_PIN_7;
+  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
+  HAL_GPIO_Init(GPIOC, &GPIO_InitStruct);
 
   /*Configure GPIO pin : LED_GREEN_Pin */
   GPIO_InitStruct.Pin = LED_GREEN_Pin;
@@ -523,13 +705,6 @@ static void MX_GPIO_Init(void)
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
   HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
 
-  /*Configure GPIO pin : PC7 */
-  GPIO_InitStruct.Pin = GPIO_PIN_7;
-  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
-  GPIO_InitStruct.Pull = GPIO_NOPULL;
-  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
-  HAL_GPIO_Init(GPIOC, &GPIO_InitStruct);
-
   /* USER CODE BEGIN MX_GPIO_Init_2 */
 
   /* USER CODE END MX_GPIO_Init_2 */
@@ -549,10 +724,24 @@ static void MX_GPIO_Init(void)
 void StartTaskSemaforo(void *argument)
 {
   /* USER CODE BEGIN 5 */
+	uint8_t pedestrian_val = 0;
   /* Infinite loop */
   for(;;)
   {
-    osDelay(1);
+	pedestrian_val = pedestrian_detected;
+
+	if(pedestrian_val){
+		LED01_0;
+		LED02_1;
+		LED03_1;
+		LED04_0;
+	} else {
+		LED01_1;
+		LED02_0;
+		LED03_0;
+		LED04_1;
+	}
+    osDelay(10);
   }
   /* USER CODE END 5 */
 }
@@ -567,11 +756,46 @@ void StartTaskSemaforo(void *argument)
 void StartTaskServoGate(void *argument)
 {
   /* USER CODE BEGIN StartTaskServoGate */
-	//HAL_UART_Init(&huart2);
+
+	const uint16_t PULSE_MIN  = 10; // 1.0 ms
+	const uint16_t PULSE_MID  = 15; // 1.5 ms
+	const uint16_t PULSE_MAX  = 20; // 2.0 ms
+
+	TIM_OC_InitTypeDef sConfig = { 0 };
+	htim1.Init.Prescaler = 1600 - 1;
+	htim1.Init.Period = 200 - 1;
+	HAL_TIM_Base_Init(&htim1);
+
+	sConfig.OCMode = TIM_OCMODE_PWM1;
+	sConfig.OCPolarity = TIM_OCPOLARITY_HIGH;
+	sConfig.OCNPolarity = TIM_OCNPOLARITY_LOW;
+	sConfig.OCFastMode = TIM_OCFAST_DISABLE;
+	sConfig.OCIdleState = TIM_OCIDLESTATE_RESET;
+	sConfig.OCNIdleState = TIM_OCNIDLESTATE_RESET;
+
+	sConfig.Pulse = 10;
+	HAL_TIM_PWM_ConfigChannel(&htim1, &sConfig,TIM_CHANNEL_1);
+	HAL_TIM_PWM_Init(&htim1);
+	HAL_TIM_PWM_Start(&htim1, TIM_CHANNEL_1);
+	//HAL_TIM_PWM_Stop(&htim1, TIM_CHANNEL_1);
+
   /* Infinite loop */
   for(;;)
   {
-    osDelay(1);
+		  osDelay(2000);
+		  HAL_TIM_PWM_Stop(&htim1, TIM_CHANNEL_1);
+		  sConfig.Pulse = 10;
+		  HAL_TIM_PWM_ConfigChannel(&htim1, &sConfig, TIM_CHANNEL_1);
+		  HAL_TIM_PWM_Init(&htim1);
+		  HAL_TIM_PWM_Start(&htim1, TIM_CHANNEL_1);
+		  osDelay(2000);
+		  HAL_TIM_PWM_Stop(&htim1, TIM_CHANNEL_1);
+		  sConfig.Pulse = 4;
+		  HAL_TIM_PWM_ConfigChannel(&htim1, &sConfig, TIM_CHANNEL_1);
+		  HAL_TIM_PWM_Init(&htim1);
+		  HAL_TIM_PWM_Start(&htim1, TIM_CHANNEL_1);
+
+	  osDelay(1);
   }
   /* USER CODE END StartTaskServoGate */
 }
@@ -586,9 +810,37 @@ void StartTaskServoGate(void *argument)
 void StartTaskSensor(void *argument)
 {
   /* USER CODE BEGIN StartTaskSensor */
+	HAL_ADC_Init(&hadc1);
+	uint16_t val = 0;
+
+	RTC_TimeTypeDef lcdTime = {0};
+	RTC_DateTypeDef lcdDate = {0};
+	HAL_RTC_Init(&hrtc);
+	HAL_RTC_SetTime(&hrtc, &lcdTime, RTC_FORMAT_BIN);
+	HAL_RTC_SetDate(&hrtc, &lcdDate, RTC_FORMAT_BIN);
+	HAL_RTC_WaitForSynchro(&hrtc);
   /* Infinite loop */
   for(;;)
   {
+	HAL_ADC_Start(&hadc1);
+	HAL_ADC_PollForConversion(&hadc1, 10);
+	val = HAL_ADC_GetValue(&hadc1);
+	HAL_ADC_Stop(&hadc1);
+
+	//osMutexAcquire(printableHandle, osWaitForever);
+	//print_loc = PRINT_TERMINAL;
+	//printf("Li: %d - %d\n", val, pedestrian_detected);
+	//osMutexRelease(printableHandle);
+
+	osMutexAcquire(pedestrianMutexHandle, osWaitForever);
+	if(val > 1000){
+		pedestrian_detected = 1;
+		HAL_RTC_SetTime(&hrtc, &lcdTime, RTC_FORMAT_BIN);
+		HAL_RTC_SetDate(&hrtc, &lcdDate, RTC_FORMAT_BIN);
+	}
+	osMutexRelease(pedestrianMutexHandle);
+
+
     osDelay(1);
   }
   /* USER CODE END StartTaskSensor */
@@ -605,17 +857,41 @@ void StartTaskLCD(void *argument)
 {
   /* USER CODE BEGIN StartTaskLCD */
   LCD_Init(LCD_Cursor_Off);
+
+  RTC_TimeTypeDef lcdTime = {0};
+  RTC_DateTypeDef lcdDate = {0};
+  uint8_t zero_time_printed = 1;
   /* Infinite loop */
   for(;;)
   {
-	LCD_goto(0, 0);
+	LCD_goto(0,0);
+	osMutexAcquire(printableHandle, osWaitForever);
+	osMutexAcquire(pedestrianMutexHandle, osWaitForever);
+
 	print_loc = PRINT_DISPLAY;
-	printf("abc\n");
-	osDelay(200);
-	LCD_goto(0, 1);
-	print_loc = PRINT_DISPLAY;
-	printf("defghijk\n");
-    osDelay(200);
+	if(pedestrian_detected){
+		printf("[X] Pedestrian\n");
+		HAL_RTC_GetTime(&hrtc, &lcdTime, RTC_FORMAT_BIN);
+		HAL_RTC_GetDate(&hrtc, &lcdDate, RTC_FORMAT_BIN);
+		LCD_goto(0,1);
+		if(lcdTime.Seconds >= 5){
+			pedestrian_detected = 0;
+		}
+		printf("00:%02d-Wait Time\n", 5 - lcdTime.Seconds);
+		zero_time_printed = 1;
+	}
+	else{
+		if(zero_time_printed){
+			printf("[ ] Pedestrian\n");
+			LCD_goto(0,1);
+			printf("00:00-Wait Time\n");
+			zero_time_printed = 0;
+		}
+	}
+
+	osMutexRelease(pedestrianMutexHandle);
+	osMutexRelease(printableHandle);
+	osDelay(10);
   }
   /* USER CODE END StartTaskLCD */
 }
