@@ -24,6 +24,7 @@
 /* USER CODE BEGIN Includes */
 #include "stdio.h"
 #include "stdarg.h"
+#include "float.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -76,10 +77,12 @@
 
 /* Private variables ---------------------------------------------------------*/
 ADC_HandleTypeDef hadc1;
+DMA_HandleTypeDef hdma_adc1;
 
 RTC_HandleTypeDef hrtc;
 
 TIM_HandleTypeDef htim1;
+TIM_HandleTypeDef htim2;
 
 UART_HandleTypeDef huart2;
 
@@ -111,6 +114,13 @@ const osThreadAttr_t taskLCD_attributes = {
   .priority = (osPriority_t) osPriorityLow,
   .stack_size = 128 * 4
 };
+/* Definitions for taskTemperatura */
+osThreadId_t taskTemperaturaHandle;
+const osThreadAttr_t taskTemperatura_attributes = {
+  .name = "taskTemperatura",
+  .priority = (osPriority_t) osPriorityLow,
+  .stack_size = 512 * 4
+};
 /* Definitions for printable */
 osMutexId_t printableHandle;
 const osMutexAttr_t printable_attributes = {
@@ -121,22 +131,31 @@ osMutexId_t pedestrianMutexHandle;
 const osMutexAttr_t pedestrianMutex_attributes = {
   .name = "pedestrianMutex"
 };
+/* Definitions for adc */
+osMutexId_t adcHandle;
+const osMutexAttr_t adc_attributes = {
+  .name = "adc"
+};
 /* USER CODE BEGIN PV */
 uint8_t print_loc = PRINT_DISPLAY;
 uint8_t pedestrian_detected = 0;
+volatile int16_t adc_values[2] = {0, 0};
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
 void SystemClock_Config(void);
 static void MX_GPIO_Init(void);
+static void MX_DMA_Init(void);
 static void MX_USART2_UART_Init(void);
 static void MX_TIM1_Init(void);
 static void MX_ADC1_Init(void);
 static void MX_RTC_Init(void);
+static void MX_TIM2_Init(void);
 void StartTaskSemaforo(void *argument);
 void StartTaskServoGate(void *argument);
 void StartTaskSensor(void *argument);
 void StartTaskLCD(void *argument);
+void StartTaskTemperatura(void *argument);
 
 /* USER CODE BEGIN PFP */
 void us_delay(int time);
@@ -152,6 +171,12 @@ void LCD_Init(uint8_t cursor);
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
+void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef* hadc)
+{
+    // Reinicia o DMA para a próxima sequência (disparada pelo TIM2 TRGO)
+    HAL_ADC_Start_DMA(hadc, (uint16_t*)adc_values, 2);
+}
+
 void us_delay(int time){
 	for(int i = 0; i < time; i++){
 		// 7 in the second loop is used in order to reach 1us Delay
@@ -282,11 +307,17 @@ int main(void)
 
   /* Initialize all configured peripherals */
   MX_GPIO_Init();
+  MX_DMA_Init();
   MX_USART2_UART_Init();
   MX_TIM1_Init();
   MX_ADC1_Init();
   MX_RTC_Init();
+  MX_TIM2_Init();
   /* USER CODE BEGIN 2 */
+  /* USER CODE BEGIN 2 */
+  HAL_ADCEx_Calibration_Start(&hadc1);
+  HAL_ADC_Start_DMA(&hadc1, (uint16_t*)adc_values, 2);
+  HAL_TIM_Base_Start(&htim2); // Inicia TIM2 para gerar o TRGO
   /* USER CODE END 2 */
 
   /* Init scheduler */
@@ -297,6 +328,9 @@ int main(void)
 
   /* creation of pedestrianMutex */
   pedestrianMutexHandle = osMutexNew(&pedestrianMutex_attributes);
+
+  /* creation of adc */
+  adcHandle = osMutexNew(&adc_attributes);
 
   /* USER CODE BEGIN RTOS_MUTEX */
   /* add mutexes, ... */
@@ -326,6 +360,9 @@ int main(void)
 
   /* creation of taskLCD */
   taskLCDHandle = osThreadNew(StartTaskLCD, NULL, &taskLCD_attributes);
+
+  /* creation of taskTemperatura */
+  taskTemperaturaHandle = osThreadNew(StartTaskTemperatura, NULL, &taskTemperatura_attributes);
 
   /* USER CODE BEGIN RTOS_THREADS */
   /* add threads, ... */
@@ -416,15 +453,15 @@ static void MX_ADC1_Init(void)
   hadc1.Init.ClockPrescaler = ADC_CLOCK_SYNC_PCLK_DIV2;
   hadc1.Init.Resolution = ADC_RESOLUTION_12B;
   hadc1.Init.DataAlign = ADC_DATAALIGN_RIGHT;
-  hadc1.Init.ScanConvMode = ADC_SCAN_DISABLE;
-  hadc1.Init.EOCSelection = ADC_EOC_SINGLE_CONV;
+  hadc1.Init.ScanConvMode = ADC_SCAN_ENABLE;
+  hadc1.Init.EOCSelection = ADC_EOC_SEQ_CONV;
   hadc1.Init.LowPowerAutoWait = DISABLE;
   hadc1.Init.LowPowerAutoPowerOff = DISABLE;
   hadc1.Init.ContinuousConvMode = DISABLE;
-  hadc1.Init.NbrOfConversion = 1;
+  hadc1.Init.NbrOfConversion = 2;
   hadc1.Init.DiscontinuousConvMode = DISABLE;
-  hadc1.Init.ExternalTrigConv = ADC_SOFTWARE_START;
-  hadc1.Init.ExternalTrigConvEdge = ADC_EXTERNALTRIGCONVEDGE_NONE;
+  hadc1.Init.ExternalTrigConv = ADC_EXTERNALTRIG_T2_TRGO;
+  hadc1.Init.ExternalTrigConvEdge = ADC_EXTERNALTRIGCONVEDGE_RISING;
   hadc1.Init.DMAContinuousRequests = DISABLE;
   hadc1.Init.Overrun = ADC_OVR_DATA_PRESERVED;
   hadc1.Init.SamplingTimeCommon1 = ADC_SAMPLETIME_1CYCLE_5;
@@ -441,6 +478,16 @@ static void MX_ADC1_Init(void)
   sConfig.Channel = ADC_CHANNEL_1;
   sConfig.Rank = ADC_REGULAR_RANK_1;
   sConfig.SamplingTime = ADC_SAMPLINGTIME_COMMON_1;
+  if (HAL_ADC_ConfigChannel(&hadc1, &sConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+
+  /** Configure Regular Channel
+  */
+  sConfig.Channel = ADC_CHANNEL_4;
+  sConfig.Rank = ADC_REGULAR_RANK_2;
+  sConfig.SamplingTime = ADC_SAMPLINGTIME_COMMON_2;
   if (HAL_ADC_ConfigChannel(&hadc1, &sConfig) != HAL_OK)
   {
     Error_Handler();
@@ -600,6 +647,51 @@ static void MX_TIM1_Init(void)
 }
 
 /**
+  * @brief TIM2 Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_TIM2_Init(void)
+{
+
+  /* USER CODE BEGIN TIM2_Init 0 */
+
+  /* USER CODE END TIM2_Init 0 */
+
+  TIM_ClockConfigTypeDef sClockSourceConfig = {0};
+  TIM_MasterConfigTypeDef sMasterConfig = {0};
+
+  /* USER CODE BEGIN TIM2_Init 1 */
+
+  /* USER CODE END TIM2_Init 1 */
+  htim2.Instance = TIM2;
+  htim2.Init.Prescaler = 16000-1;
+  htim2.Init.CounterMode = TIM_COUNTERMODE_DOWN;
+  htim2.Init.Period = 100-1;
+  htim2.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
+  htim2.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
+  if (HAL_TIM_Base_Init(&htim2) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sClockSourceConfig.ClockSource = TIM_CLOCKSOURCE_INTERNAL;
+  if (HAL_TIM_ConfigClockSource(&htim2, &sClockSourceConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sMasterConfig.MasterOutputTrigger = TIM_TRGO_UPDATE;
+  sMasterConfig.MasterSlaveMode = TIM_MASTERSLAVEMODE_DISABLE;
+  if (HAL_TIMEx_MasterConfigSynchronization(&htim2, &sMasterConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN TIM2_Init 2 */
+
+  /* USER CODE END TIM2_Init 2 */
+
+}
+
+/**
   * @brief USART2 Initialization Function
   * @param None
   * @retval None
@@ -644,6 +736,22 @@ static void MX_USART2_UART_Init(void)
   /* USER CODE BEGIN USART2_Init 2 */
 
   /* USER CODE END USART2_Init 2 */
+
+}
+
+/**
+  * Enable DMA controller clock
+  */
+static void MX_DMA_Init(void)
+{
+
+  /* DMA controller clock enable */
+  __HAL_RCC_DMA1_CLK_ENABLE();
+
+  /* DMA interrupt init */
+  /* DMA1_Channel1_IRQn interrupt configuration */
+  HAL_NVIC_SetPriority(DMA1_Channel1_IRQn, 3, 0);
+  HAL_NVIC_EnableIRQ(DMA1_Channel1_IRQn);
 
 }
 
@@ -724,7 +832,7 @@ static void MX_GPIO_Init(void)
 void StartTaskSemaforo(void *argument)
 {
   /* USER CODE BEGIN 5 */
-	uint8_t pedestrian_val = 0;
+   uint8_t pedestrian_val = 0;
   /* Infinite loop */
   for(;;)
   {
@@ -757,13 +865,12 @@ void StartTaskServoGate(void *argument)
 {
   /* USER CODE BEGIN StartTaskServoGate */
 
-	const uint16_t PULSE_MIN  = 10; // 1.0 ms
-	const uint16_t PULSE_MID  = 15; // 1.5 ms
-	const uint16_t PULSE_MAX  = 20; // 2.0 ms
+	const uint16_t PULSE_OFF  = 147 - 1; // 1.5 ms
+	const uint16_t PULSE_ON  = 245 - 1; // 2.0 ms
 
 	TIM_OC_InitTypeDef sConfig = { 0 };
-	htim1.Init.Prescaler = 1600 - 1;
-	htim1.Init.Period = 200 - 1;
+	htim1.Init.Prescaler = 160 - 1;
+	htim1.Init.Period = 2000 - 1;
 	HAL_TIM_Base_Init(&htim1);
 
 	sConfig.OCMode = TIM_OCMODE_PWM1;
@@ -773,7 +880,7 @@ void StartTaskServoGate(void *argument)
 	sConfig.OCIdleState = TIM_OCIDLESTATE_RESET;
 	sConfig.OCNIdleState = TIM_OCNIDLESTATE_RESET;
 
-	sConfig.Pulse = 24 - 1;
+	sConfig.Pulse = PULSE_OFF;
 	HAL_TIM_PWM_ConfigChannel(&htim1, &sConfig,TIM_CHANNEL_1);
 	HAL_TIM_PWM_Init(&htim1);
 	HAL_TIM_PWM_Start(&htim1, TIM_CHANNEL_1);
@@ -785,19 +892,20 @@ void StartTaskServoGate(void *argument)
   /* Infinite loop */
   for(;;)
   {
+	  	  osDelay(200);
   	  	  pedestrian_val_02 = pedestrian_val_01;
 	  	  pedestrian_val_01 = pedestrian_detected;
 
 	  	  if(pedestrian_val_01 != pedestrian_val_02){
 	  		  if(pedestrian_val_01){
 	  			  HAL_TIM_PWM_Stop(&htim1, TIM_CHANNEL_1);
-	  			  sConfig.Pulse = 14 - 1;
+	  			  sConfig.Pulse = PULSE_ON;
 	  			  HAL_TIM_PWM_ConfigChannel(&htim1, &sConfig, TIM_CHANNEL_1);
 	  			  HAL_TIM_PWM_Init(&htim1);
 	  			  HAL_TIM_PWM_Start(&htim1, TIM_CHANNEL_1);
 	  		  }else{
 	  			  HAL_TIM_PWM_Stop(&htim1, TIM_CHANNEL_1);
-	  			  sConfig.Pulse = 24 - 1;
+	  			  sConfig.Pulse = PULSE_OFF;
 	  			  HAL_TIM_PWM_ConfigChannel(&htim1, &sConfig, TIM_CHANNEL_1);
 	  			  HAL_TIM_PWM_Init(&htim1);
 	  			  HAL_TIM_PWM_Start(&htim1, TIM_CHANNEL_1);
@@ -805,8 +913,6 @@ void StartTaskServoGate(void *argument)
 	  	  }else{
 	  		HAL_TIM_PWM_Stop(&htim1, TIM_CHANNEL_1);
 	  	  }
-		  osDelay(200);
-
 
   }
   /* USER CODE END StartTaskServoGate */
@@ -822,38 +928,37 @@ void StartTaskServoGate(void *argument)
 void StartTaskSensor(void *argument)
 {
   /* USER CODE BEGIN StartTaskSensor */
-	HAL_ADC_Init(&hadc1);
+	//HAL_ADC_Start_DMA(&hadc1, (uint32_t*)adc_values, 2);
 	uint16_t val = 0;
 
 	RTC_TimeTypeDef lcdTime = {0};
 	RTC_DateTypeDef lcdDate = {0};
+	lcdTime.Seconds = 5;
 	HAL_RTC_Init(&hrtc);
 	HAL_RTC_SetTime(&hrtc, &lcdTime, RTC_FORMAT_BIN);
 	HAL_RTC_SetDate(&hrtc, &lcdDate, RTC_FORMAT_BIN);
 	HAL_RTC_WaitForSynchro(&hrtc);
+	lcdTime.Seconds = 0;
   /* Infinite loop */
   for(;;)
   {
-	HAL_ADC_Start(&hadc1);
-	HAL_ADC_PollForConversion(&hadc1, 10);
-	val = HAL_ADC_GetValue(&hadc1);
-	HAL_ADC_Stop(&hadc1);
+	 osMutexAcquire(adcHandle, osWaitForever);
+	 val = adc_values[0];
+	 osMutexRelease(adcHandle);
 
-	//osMutexAcquire(printableHandle, osWaitForever);
-	//print_loc = PRINT_TERMINAL;
-	//printf("Li: %d - %d\n", val, pedestrian_detected);
-	//osMutexRelease(printableHandle);
-
-	osMutexAcquire(pedestrianMutexHandle, osWaitForever);
-	if(val > 1000){
-		pedestrian_detected = 1;
-		HAL_RTC_SetTime(&hrtc, &lcdTime, RTC_FORMAT_BIN);
-		HAL_RTC_SetDate(&hrtc, &lcdDate, RTC_FORMAT_BIN);
+	if(val > 200){
+		if(pedestrian_detected == 0){
+			osMutexAcquire(pedestrianMutexHandle, osWaitForever);
+			HAL_RTC_SetTime(&hrtc, &lcdTime, RTC_FORMAT_BIN);
+			HAL_RTC_SetDate(&hrtc, &lcdDate, RTC_FORMAT_BIN);
+			pedestrian_detected = 1;
+			osMutexRelease(pedestrianMutexHandle);
+			osDelay(6000);
+		}
 	}
-	osMutexRelease(pedestrianMutexHandle);
 
 
-    osDelay(1);
+    osDelay(100);
   }
   /* USER CODE END StartTaskSensor */
 }
@@ -872,33 +977,40 @@ void StartTaskLCD(void *argument)
 
   RTC_TimeTypeDef lcdTime = {0};
   RTC_DateTypeDef lcdDate = {0};
-  uint8_t zero_time_printed = 1;
+  LCD_goto(0,0);
+
+  osMutexAcquire(printableHandle, osWaitForever);
+  print_loc = PRINT_DISPLAY;
+  printf(" [ ] Pedestrian\n");
+  LCD_goto(0,1);
+  printf("00:00  Wait Time\n");
+  osMutexRelease(printableHandle);
+
   /* Infinite loop */
   for(;;)
   {
-	LCD_goto(0,0);
+	LCD_goto(1,0);
+
 	osMutexAcquire(printableHandle, osWaitForever);
 	osMutexAcquire(pedestrianMutexHandle, osWaitForever);
-
 	print_loc = PRINT_DISPLAY;
+
 	if(pedestrian_detected){
-		printf("[X] Pedestrian\n");
+		printf("[X]\n");
 		HAL_RTC_GetTime(&hrtc, &lcdTime, RTC_FORMAT_BIN);
 		HAL_RTC_GetDate(&hrtc, &lcdDate, RTC_FORMAT_BIN);
-		LCD_goto(0,1);
+
 		if(lcdTime.Seconds >= 5){
 			pedestrian_detected = 0;
 		}
-		printf("00:%02d-Wait Time\n", 5 - lcdTime.Seconds);
-		zero_time_printed = 1;
+
+		LCD_goto(0,1);
+		printf("00:%02d\n", 5 - lcdTime.Seconds);
 	}
 	else{
-		if(zero_time_printed){
-			printf("[ ] Pedestrian\n");
-			LCD_goto(0,1);
-			printf("00:00-Wait Time\n");
-			zero_time_printed = 0;
-		}
+		printf("[ ]\n");
+		LCD_goto(0,1);
+		printf("00:00\n");
 	}
 
 	osMutexRelease(pedestrianMutexHandle);
@@ -906,6 +1018,38 @@ void StartTaskLCD(void *argument)
 	osDelay(10);
   }
   /* USER CODE END StartTaskLCD */
+}
+
+/* USER CODE BEGIN Header_StartTaskTemperatura */
+/**
+* @brief Function implementing the taskTemperatura thread.
+* @param argument: Not used
+* @retval None
+*/
+/* USER CODE END Header_StartTaskTemperatura */
+void StartTaskTemperatura(void *argument)
+{
+  /* USER CODE BEGIN StartTaskTemperatura */
+	//HAL_ADC_Init(&hadc1);
+	//HAL_ADC_Start_DMA(&hadc1, (uint32_t*)adc_values, 2);
+	uint16_t leitura_temp = 0;
+	float print_temp = 0.0f;
+  /* Infinite loop */
+  for(;;)
+  {
+	  	osMutexAcquire(adcHandle, osWaitForever);
+		leitura_temp = adc_values[1];
+		osMutexRelease(adcHandle);
+
+		print_temp = (leitura_temp / (12.41)) * (0.714);
+
+		osMutexAcquire(printableHandle, osWaitForever);
+		print_loc = PRINT_TERMINAL;
+		printf("\rTemp. Ambiente: %.2f\n", print_temp);
+		osMutexRelease(printableHandle);
+		osDelay(200);
+  }
+  /* USER CODE END StartTaskTemperatura */
 }
 
 /**
@@ -960,4 +1104,3 @@ void assert_failed(uint8_t *file, uint32_t line)
   /* USER CODE END 6 */
 }
 #endif /* USE_FULL_ASSERT */
-
